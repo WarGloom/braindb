@@ -24,8 +24,6 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       LLM_PROFILE: ${LLM_PROFILE:-deepinfra}
       AGENT_MODEL: ${AGENT_MODEL:-}
-      # OpenAI-compatible profile (Ollama / LM Studio / copilot-api / vLLM):
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       AGENT_BASE_URL: ${AGENT_BASE_URL:-}
       AGENT_API_KEY: ${AGENT_API_KEY:-}
       AGENT_USE_RESPONSES: ${AGENT_USE_RESPONSES:-false}

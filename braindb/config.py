@@ -12,6 +12,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # advanced / self-hosted / offline use and require a workstation GPU
 # (typically reached over an SSH tunnel from the docker network).
 _LLM_PROFILES: dict[str, dict[str, str]] = {
+    "codex": {
+        "model": "openai/gpt-5.3-codex-spark",
+        "api_key_env": "OPENAI_API_KEY",
+    },
     "nim": {
         "model": "nvidia_nim/google/gemma-4-31b-it",
         "api_key_env": "NVIDIA_NIM_API_KEY",
@@ -21,13 +25,14 @@ _LLM_PROFILES: dict[str, dict[str, str]] = {
         "api_key_env": "DEEPINFRA_API_KEY",
     },
     # Generic OpenAI-compatible /v1 endpoint (Ollama, LM Studio, copilot-api,
-    # vLLM, ...). Unlike the vllm_* profiles, its base_url is NOT fixed here —
-    # set OPENAI_BASE_URL in the env (see Settings.resolved_base_url). The
-    # model has no default: set AGENT_MODEL to your served model with the
-    # openai/ prefix, e.g. AGENT_MODEL=openai/llama3.2:3b.
+    # vLLM, ...). Its base_url is set by AGENT_BASE_URL; fixed self-hosted
+    # profiles keep their table base_url values. The model has no default:
+    # set AGENT_MODEL to your served model with the openai/ prefix, e.g.
+    # AGENT_MODEL=openai/llama3.2:3b.
     "openai_compatible": {
         "model": "",
-        "api_key_env": "OPENAI_API_KEY",
+        "api_key_env": "AGENT_API_KEY",
+        "default_api_key": "ollama",
     },
     "vllm_workstation": {
         "model": "openai/cyankiwi/gemma-4-31B-it-AWQ-4bit",
@@ -53,6 +58,7 @@ _LLM_PROFILES: dict[str, dict[str, str]] = {
         "base_url": "http://host.docker.internal:8012/v1",
     },
 }
+_LLM_PROFILES["local_ollama"] = _LLM_PROFILES["openai_compatible"]
 
 
 class Settings(BaseSettings):
@@ -134,10 +140,12 @@ class Settings(BaseSettings):
     # Agent (LiteLLM — provider selected via llm_profile)
     llm_profile: str = "deepinfra"
     agent_model: str = ""          # blank = use profile's default model
-    # Base URL for the `openai_compatible` profile ONLY (e.g. Ollama on
-    # http://host.docker.internal:11434/v1). Ignored by every other profile —
-    # their base_url stays fixed in _LLM_PROFILES. See resolved_base_url.
-    openai_base_url: str = ""
+    agent_base_url: str = ""       # OpenAI-compatible base URL, e.g. http://host:11434/v1
+    agent_api_key: str = ""        # optional generic key for OpenAI-compatible endpoints
+    agent_use_responses: bool = False
+    openai_api_key: str = ""
+    deepinfra_api_key: str = ""
+    nvidia_nim_api_key: str = ""
     # Bumped 15 → 20 after live observation on Qwen 27B AWQ-INT4 (vLLM):
     # deep-research-style runs commonly need >15 tool turns to land
     # `final_answer`. 20 gives breathing room; finishes-fast providers
@@ -200,29 +208,53 @@ class Settings(BaseSettings):
     agent_writer_handoff_max_depth: int = 3
 
     @property
+    def _active_llm_profile(self) -> dict[str, str]:
+        try:
+            return _LLM_PROFILES[self.llm_profile]
+        except KeyError as exc:
+            known = ", ".join(sorted(_LLM_PROFILES))
+            raise ValueError(f"Unknown LLM_PROFILE={self.llm_profile!r}. Expected one of: {known}") from exc
+
+    def _env_setting(self, env_name: str) -> str:
+        field_name = env_name.lower()
+        return getattr(self, field_name, "") or os.getenv(env_name, "")
+
+    @property
     def resolved_agent_model(self) -> str:
-        return self.agent_model or _LLM_PROFILES[self.llm_profile]["model"]
+        model = self.agent_model or self._active_llm_profile["model"]
+        if not model:
+            raise ValueError(
+                f"AGENT_MODEL must be set for LLM_PROFILE={self.llm_profile!r}; "
+                "for OpenAI-compatible endpoints use AGENT_MODEL=openai/<model-id> "
+                "(for example, openai/gpt-5-mini for copilot-api)."
+            )
+        return model
 
     @property
     def resolved_api_key(self) -> str:
-        profile = _LLM_PROFILES[self.llm_profile]
-        key = os.getenv(profile["api_key_env"], "")
-        # Self-hosted profiles (vLLM/Ollama) may run without auth, but the
-        # OpenAI client still needs a non-empty key — supply a placeholder.
-        # Uses resolved_base_url so the env-driven openai_compatible profile
-        # is covered too, not just the profiles with a fixed base_url.
-        if not key and self.resolved_base_url:
+        profile = self._active_llm_profile
+        key = self._env_setting(profile["api_key_env"])
+        if key:
+            return key
+        if "default_api_key" in profile:
+            return profile["default_api_key"]
+        if self.resolved_base_url:
             return "EMPTY"
-        return key
+        return ""
 
     @property
     def resolved_base_url(self) -> str | None:
-        # Only the generic openai_compatible profile takes its base_url from
-        # the environment (OPENAI_BASE_URL). Every other profile's base_url
-        # stays fixed in the _LLM_PROFILES table — no silent global override.
-        if self.llm_profile == "openai_compatible":
-            return self.openai_base_url or None
-        return _LLM_PROFILES[self.llm_profile].get("base_url")
+        # Only the generic OpenAI-compatible profiles take base_url from
+        # AGENT_BASE_URL. Fixed self-hosted profiles keep their table base_url;
+        # hosted profiles such as deepinfra/nim/codex should not inherit a
+        # local endpoint accidentally.
+        if self.llm_profile in {"openai_compatible", "local_ollama"}:
+            return self.agent_base_url or None
+        return self._active_llm_profile.get("base_url")
+
+    @property
+    def resolved_agent_base_url(self) -> str | None:
+        return self.resolved_base_url
 
 
 settings = Settings()

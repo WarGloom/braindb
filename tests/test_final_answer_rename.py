@@ -44,6 +44,12 @@ from braindb.agent.tools import (
 EXPECTED_FINAL_TOOL_NAME = "final_answer"
 
 
+@pytest.fixture(autouse=True)
+def _disable_responses_runner():
+    with mock.patch.object(agent_module.settings, "agent_use_responses", False):
+        yield
+
+
 @pytest.mark.parametrize(
     "tool",
     [submit_answer, submit_maintainer, submit_wiki, submit_subagent],
@@ -243,6 +249,22 @@ async def test_run_typed_returns_typed_payload_when_submitted() -> None:
         got = await agent_module.run_typed("query", fake_agent, AgentAnswer, max_turns=5)
     assert got is expected
     assert got.answer == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_run_typed_accepts_validated_final_output_payload() -> None:
+    fake_agent = mock.MagicMock(name="fake_agent")
+    fake_agent.name = "FakeAgent"
+
+    async def fake_runner_run(starting_agent, input, max_turns, hooks=None, **kwargs):
+        result_mock = mock.MagicMock()
+        result_mock.final_output = {"payload": {"answer": "hello from responses"}}
+        return result_mock
+
+    with mock.patch.object(agent_module, "_run_agent", new=fake_runner_run):
+        got = await agent_module.run_typed("query", fake_agent, AgentAnswer, max_turns=5)
+
+    assert got.answer == "hello from responses"
 
 
 # ------------------------------------------------------------------ #

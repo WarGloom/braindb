@@ -27,6 +27,8 @@ from typing import TypeVar
 
 from agents import Agent, ModelSettings, Runner, StopAtTools, set_tracing_disabled
 from agents.extensions.models.litellm_model import LitellmModel
+from agents.models.interface import Model
+from agents.models.openai_provider import OpenAIProvider
 from litellm import BadRequestError, ContextWindowExceededError
 from pydantic import BaseModel
 
@@ -156,12 +158,64 @@ def _expected_shape_hint(expected_cls: type[BaseModel]) -> str:
     return json.dumps({"payload": example_payload})
 
 
-def _model() -> LitellmModel:
+def _openai_model_name(model: str) -> str:
+    return model.removeprefix("openai/")
+
+
+def _validated_final_output(result, expected_cls: type[T]) -> T | None:
+    final_output = getattr(result, "final_output", None)
+    if isinstance(final_output, expected_cls):
+        return final_output
+    if isinstance(final_output, dict):
+        data = final_output.get("payload", final_output)
+    elif isinstance(final_output, str):
+        try:
+            raw = json.loads(final_output)
+        except json.JSONDecodeError:
+            return None
+        data = raw.get("payload", raw) if isinstance(raw, dict) else raw
+    else:
+        return None
+    try:
+        return expected_cls.model_validate(data)
+    except Exception:
+        return None
+
+
+def _model() -> Model:
+    if settings.agent_use_responses:
+        return OpenAIProvider(
+            api_key=settings.resolved_api_key,
+            base_url=settings.resolved_base_url,
+            use_responses=True,
+            use_responses_websocket=False,
+        ).get_model(_openai_model_name(settings.resolved_agent_model))
+
     return LitellmModel(
         model=settings.resolved_agent_model,
         api_key=settings.resolved_api_key,
         base_url=settings.resolved_base_url,
     )
+
+
+async def _run_agent(agent: Agent, input_data, turns: int, hooks: CountdownHooks):
+    if not settings.agent_use_responses:
+        return await Runner.run(
+            starting_agent=agent,
+            input=input_data,
+            max_turns=turns,
+            hooks=hooks,
+        )
+
+    result = Runner.run_streamed(
+        starting_agent=agent,
+        input=input_data,
+        max_turns=turns,
+        hooks=hooks,
+    )
+    async for _ in result.stream_events():
+        pass
+    return result
 
 
 def _build(
@@ -309,12 +363,12 @@ async def run_typed(
     )
     try:
         logger.info("Running typed query (%s): %s", agent.name, query[:160])
-        result = await Runner.run(
-            starting_agent=agent, input=query, max_turns=turns, hooks=hooks,
-        )
+        result = await _run_agent(agent, query, turns, hooks)
         payload = slot.value
         if isinstance(payload, expected_cls):
             return payload
+        if final_payload := _validated_final_output(result, expected_cls):
+            return final_payload
 
         # The first attempt ended without `final_answer` firing. Most
         # commonly the model emitted plain prose (a "fast finisher" /
@@ -364,12 +418,7 @@ async def run_typed(
                 threshold=settings.agent_countdown_threshold,
                 tool_name="final_answer",
             )
-            await Runner.run(
-                starting_agent=agent,
-                input=retry_input,
-                max_turns=settings.agent_retry_max_turns,
-                hooks=retry_hooks,
-            )
+            retry_result = await _run_agent(agent, retry_input, settings.agent_retry_max_turns, retry_hooks)
             payload = slot.value
             if isinstance(payload, expected_cls):
                 logger.info(
@@ -377,6 +426,8 @@ async def run_typed(
                     agent.name,
                 )
                 return payload
+            if final_payload := _validated_final_output(retry_result, expected_cls):
+                return final_payload
 
             # Retry also failed: model truly refuses the typed-final
             # contract even when told explicitly what to do. That's a

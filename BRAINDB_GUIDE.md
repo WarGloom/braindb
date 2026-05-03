@@ -397,6 +397,7 @@ The agent has these tools internally: `recall_memory`, `quick_search`, `save_fac
 - **Self-hosted vLLM** (advanced / offline / requires GPU workstation): set `LLM_PROFILE=vllm_workstation` (or `..._qwen`, `..._gemma`) — points at a vLLM server bound to the Docker host's loopback at `:8002` / `:8010` / `:8009` respectively. Reach it from the docker network via an SSH tunnel if the GPU is on a remote machine. No API key needed if the server runs without auth. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add your own self-hosted profile.
 - Profiles live in `braindb/config.py::_LLM_PROFILES`. Add new providers there (e.g. `together`, `openai`) by adding a dict entry — no code change required.
 - Optional override: set `AGENT_MODEL=` in `.env` to use a non-default model for the active profile.
+- Optional auth override: set `AGENT_API_KEY=` only if your OpenAI-compatible endpoint requires auth; copilot-api and Ollama can run without it when local auth is disabled.
 
 **Verbose logging**: set `AGENT_VERBOSE=true` in `.env` to log every tool call to stdout (visible via `docker logs braindb_api -f`). The HTTP response stays clean — only `answer` and `max_turns`.
 
