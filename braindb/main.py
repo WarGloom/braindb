@@ -31,13 +31,6 @@ app.include_router(wiki.router)
 app.include_router(integrations.router)
 
 
-@app.on_event("startup")
-def startup():
-    """Initialize the embedding service on startup."""
-    emb = get_embedding_service()
-    emb.initialize()
-
-
 @app.get("/health")
 def health():
     emb = get_embedding_service()

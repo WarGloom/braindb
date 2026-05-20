@@ -170,18 +170,51 @@ openai_compatible_root_url() {
   esac
 }
 
+host_probe_url() {
+  local url="$1"
+
+  case "$url" in
+    http://host.containers.internal*)
+      printf 'http://localhost%s\n' "${url#http://host.containers.internal}"
+      ;;
+    https://host.containers.internal*)
+      printf 'https://localhost%s\n' "${url#https://host.containers.internal}"
+      ;;
+    http://host.docker.internal*)
+      printf 'http://localhost%s\n' "${url#http://host.docker.internal}"
+      ;;
+    https://host.docker.internal*)
+      printf 'https://localhost%s\n' "${url#https://host.docker.internal}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+fetch_url() {
+  local url="$1"
+  curl -fsS --max-time 4 "$url" 2>/dev/null
+}
+
 fetch_openai_compatible_models() {
   require_cmd curl
-  local base root payload
+  local base root host_base host_root payload
   base="$(openai_compatible_base_url)"
   [[ -n "$base" ]] || return 1
 
   root="$(openai_compatible_root_url)"
+  host_base="$(host_probe_url "$base" || true)"
+  host_root="$(host_probe_url "$root" || true)"
 
   payload="$(
-    curl -fsS --max-time 4 "$base/models" 2>/dev/null || \
-    curl -fsS --max-time 4 "$root/api/tags" 2>/dev/null || \
-    curl -fsS --max-time 4 "$root/v1/models" 2>/dev/null || true
+    fetch_url "$base/models" || \
+    fetch_url "$root/api/tags" || \
+    fetch_url "$root/v1/models" || \
+    { [[ -n "$host_base" ]] && fetch_url "$host_base/models"; } || \
+    { [[ -n "$host_root" ]] && fetch_url "$host_root/api/tags"; } || \
+    { [[ -n "$host_root" ]] && fetch_url "$host_root/v1/models"; } || \
+    true
   )"
 
   [[ -n "$payload" ]] || return 1

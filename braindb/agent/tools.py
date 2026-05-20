@@ -851,7 +851,7 @@ async def generate_embeddings() -> str:
     """Generate embeddings for keyword entities that don't have one yet."""
     try:
         emb = get_embedding_service()
-        if not emb.is_available():
+        if not emb.initialize():
             return _err("embedding service not available")
         with get_conn() as conn:
             result = generate_missing_embeddings(conn, emb)

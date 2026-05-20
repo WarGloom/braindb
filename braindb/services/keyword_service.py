@@ -37,7 +37,7 @@ def ensure_keyword_entities(
             else:
                 # Create new keyword entity
                 embedding = None
-                if embedding_service and embedding_service.is_available():
+                if embedding_service and embedding_service.initialize():
                     embedding = embedding_service.embed(kw)
 
                 cur.execute(

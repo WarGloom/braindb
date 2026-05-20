@@ -307,7 +307,7 @@ def assemble_context(conn, req: ContextRequest) -> ContextResponse:
     embedding_rows: dict = {}    # entity_id → row data (for entities found only via embedding)
 
     emb_svc = get_embedding_service()
-    if emb_svc.is_available():
+    if emb_svc.initialize():
         for q in query_list:
             per_q_scores: dict = {}
             query_emb = emb_svc.embed(q)

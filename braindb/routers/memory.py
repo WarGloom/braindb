@@ -193,7 +193,7 @@ def _to_safe(value):
 def generate_embeddings():
     """Generate embeddings for all keyword entities that don't have one."""
     emb_svc = get_embedding_service()
-    if not emb_svc.is_available():
+    if not emb_svc.initialize():
         raise HTTPException(503, "Embedding service not available — is sentence-transformers installed?")
     with get_conn() as conn:
         result = generate_missing_embeddings(conn, emb_svc)
