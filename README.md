@@ -243,6 +243,14 @@ AGENT_MODEL=                  # optional override; REQUIRED for openai_compatibl
 ```
 
 For copilot-api, set `AGENT_BASE_URL=http://<host-ip>:4141/v1` and `AGENT_MODEL=openai/gpt-5-mini`. For Ollama, use `AGENT_BASE_URL=http://<ollama-host>:11434/v1` and an Ollama model such as `AGENT_MODEL=openai/llama3.2:3b`. `AGENT_API_KEY` is optional and only needed if your OpenAI-compatible endpoint enforces auth.
+For `openai_compatible`, `AGENT_MODEL` is required because BrainDB does not know which model your endpoint serves:
+
+```
+LLM_PROFILE=openai_compatible
+AGENT_MODEL=openai/llama3.2:3b
+AGENT_BASE_URL=http://host.docker.internal:11434/v1
+AGENT_API_KEY=
+```
 
 **Verbose logging**: set `AGENT_VERBOSE=true` in `.env` to log every tool call (entry args + exit elapsed/result) to stdout, visible via `docker logs braindb_api -f`.
 
