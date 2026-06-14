@@ -127,6 +127,12 @@ def reconcile_summarises_additive(conn, wiki_id: str, body: str) -> dict:
     cited = parse_refs(body)
     added = 0
     with conn.cursor() as cur:
+        if cited:
+            cur.execute(
+                "SELECT id::text FROM entities WHERE id = ANY(%s::uuid[])",
+                (list(cited),),
+            )
+            cited = {r[0].lower() for r in cur.fetchall()}
         cur.execute(
             "SELECT to_entity_id::text FROM relations "
             "WHERE from_entity_id = %s AND relation_type = 'summarises'",
